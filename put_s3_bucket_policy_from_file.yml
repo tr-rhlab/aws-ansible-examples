@@ -1,0 +1,68 @@
+---
+# Example: create a bucket if needed and set its resource policy from a JSON
+# file. Written for a customer demo.
+#
+#   ansible-playbook put_s3_bucket_policy_from_file.yml \
+#     -e bucket_name=policy-from-file \
+#     -e aws_region=us-east-1
+#
+# Optional: -e aws_profile=my-profile
+# Optional: -e policy_file=/path/to/policy.json
+# Rehearsal endpoint, such as fakecloud. Leave this off for a customer account:
+#   -e endpoint_url=http://127.0.0.1:4566
+#
+# lookup('file') reads the JSON on the control node. The file is the whole
+# bucket policy, so a reviewer can read it without the playbook. Plain JSON
+# has no variables: 123456789012 and policy-from-file are the example account
+# and bucket. Replace both for a customer, and pass the same bucket name in.
+
+- name: Set an S3 bucket policy from a JSON file
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aws_region: us-east-1
+    policy_path: "{{ policy_file | default(playbook_dir + '/policies/allow-list-and-read.json') }}"
+
+  tasks:
+    - name: Require a bucket name
+      ansible.builtin.assert:
+        that:
+          - bucket_name | default('') | length > 0
+        fail_msg: >-
+          Pass the bucket with -e bucket_name=<name>
+          and its region with -e aws_region=<region>.
+
+    - name: Load the bucket policy document
+      ansible.builtin.set_fact:
+        bucket_policy: "{{ lookup('file', policy_path) | from_json }}"
+
+    - name: Require every resource to name this bucket
+      ansible.builtin.assert:
+        that:
+          - item is search(bucket_name)
+        fail_msg: >-
+          {{ policy_path }} has a Resource that does not name {{ bucket_name }}.
+          Edit the JSON, or pass -e bucket_name= with the name used in that file.
+      loop: "{{ bucket_policy.Statement | map(attribute='Resource') | flatten }}"
+
+    - name: Create the bucket and apply the policy file
+      amazon.aws.s3_bucket:
+        name: "{{ bucket_name }}"
+        state: present
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile | default(omit) }}"
+        endpoint_url: "{{ endpoint_url | default(omit) }}"
+        aws_config: "{{ {'s3': {'addressing_style': 'path'}} if (endpoint_url | default('') | length > 0) else omit }}"
+        policy: "{{ bucket_policy }}"
+      register: bucket_result
+
+    - name: Show the applied policy
+      ansible.builtin.debug:
+        msg:
+          bucket: "{{ bucket_name }}"
+          region: "{{ aws_region }}"
+          policy_file: "{{ policy_path }}"
+          changed: "{{ bucket_result.changed }}"
+          policy: "{{ bucket_result.policy }}"

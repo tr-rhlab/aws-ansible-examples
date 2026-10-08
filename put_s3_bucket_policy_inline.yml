@@ -1,0 +1,77 @@
+---
+# Example: create a bucket if needed and set its resource policy from YAML
+# in this file. Written for a customer demo.
+#
+#   ansible-playbook put_s3_bucket_policy_inline.yml \
+#     -e bucket_name=my-bucket \
+#     -e aws_region=us-east-1 \
+#     -e aws_account_id=123456789012 \
+#     -e reader_role_name=AppReader
+#
+# Optional: -e aws_profile=my-profile
+# Rehearsal endpoint, such as fakecloud. Leave this off for a customer account:
+#   -e endpoint_url=http://127.0.0.1:4566
+#
+# The policy parameter is type json, so a YAML mapping is the policy document.
+# Account, role, and bucket are variables, so the demo can move to another
+# account without rewriting the statements. The deny applies to every principal
+# and only rejects requests that are not HTTPS. The allow names one role.
+# Version is quoted so YAML keeps it as the string 2012-10-17.
+# A new document replaces the previous policy. A matching document reports unchanged.
+
+- name: Set an S3 bucket policy from the playbook
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aws_region: us-east-1
+    aws_account_id: "123456789012"
+    reader_role_name: AppReader
+
+  tasks:
+    - name: Require a bucket name
+      ansible.builtin.assert:
+        that:
+          - bucket_name | default('') | length > 0
+        fail_msg: >-
+          Pass the bucket with -e bucket_name=<name>
+          and its region with -e aws_region=<region>.
+
+    - name: Create the bucket and apply the inline policy
+      amazon.aws.s3_bucket:
+        name: "{{ bucket_name }}"
+        state: present
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile | default(omit) }}"
+        endpoint_url: "{{ endpoint_url | default(omit) }}"
+        aws_config: "{{ {'s3': {'addressing_style': 'path'}} if (endpoint_url | default('') | length > 0) else omit }}"
+        policy:
+          Version: "2012-10-17"
+          Statement:
+            - Sid: DenyInsecureTransport
+              Effect: Deny
+              Principal: "*"
+              Action: "s3:*"
+              Resource:
+                - "arn:aws:s3:::{{ bucket_name }}"
+                - "arn:aws:s3:::{{ bucket_name }}/*"
+              Condition:
+                Bool:
+                  aws:SecureTransport: "false"
+            - Sid: AllowRoleRead
+              Effect: Allow
+              Principal:
+                AWS: "arn:aws:iam::{{ aws_account_id }}:role/{{ reader_role_name }}"
+              Action:
+                - s3:GetObject
+              Resource: "arn:aws:s3:::{{ bucket_name }}/*"
+      register: bucket_result
+
+    - name: Show the applied policy
+      ansible.builtin.debug:
+        msg:
+          bucket: "{{ bucket_name }}"
+          region: "{{ aws_region }}"
+          changed: "{{ bucket_result.changed }}"
+          policy: "{{ bucket_result.policy }}"

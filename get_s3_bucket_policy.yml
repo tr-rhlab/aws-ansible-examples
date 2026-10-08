@@ -1,0 +1,72 @@
+---
+# Read the resource policy on one S3 bucket with the amazon.aws collection.
+#
+#   ansible-galaxy collection install -r collections/requirements.yml
+#   ansible-playbook get_s3_bucket_policy.yml \
+#     -e bucket_name=my-bucket \
+#     -e aws_region=us-east-1
+#
+# Optional: -e aws_profile=my-profile
+# Optional local endpoint, such as fakecloud:
+#   -e endpoint_url=http://127.0.0.1:4566
+# Credentials otherwise come from the usual AWS environment or config files.
+# aws_region must be the bucket's region. GetBucketPolicy is regional, and
+# this module drops that API error, so the wrong region looks like "no policy".
+#
+# The caller needs s3:ListAllMyBuckets, s3:GetBucketPolicy, and
+# s3:GetBucketPolicyStatus.
+
+- name: Retrieve an S3 bucket policy
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aws_region: us-east-1
+
+  tasks:
+    - name: Require a bucket name
+      ansible.builtin.assert:
+        that:
+          - bucket_name | default('') | length > 0
+        fail_msg: >-
+          Pass the bucket with -e bucket_name=<name>
+          and its region with -e aws_region=<region>.
+
+    - name: Get the S3 bucket policy
+      amazon.aws.s3_bucket_info:
+        name: "{{ bucket_name }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile | default(omit) }}"
+        endpoint_url: "{{ endpoint_url | default(omit) }}"
+        aws_config: "{{ {'s3': {'addressing_style': 'path'}} if (endpoint_url | default('') | length > 0) else omit }}"
+        bucket_facts:
+          bucket_policy: true
+          bucket_policy_status: true
+      register: s3_bucket
+
+    - name: Require the named bucket
+      ansible.builtin.assert:
+        that:
+          - s3_bucket.buckets | length == 1
+          - s3_bucket.buckets[0].name == bucket_name
+        fail_msg: >-
+          No S3 bucket named {{ bucket_name }} was returned.
+          Confirm the name and that this identity can list the bucket.
+
+    - name: Record the bucket policy document
+      ansible.builtin.set_fact:
+        s3_bucket_policy: "{{ _policy if _policy is mapping else (_policy | from_json) }}"
+        s3_bucket_policy_is_public: "{{ s3_bucket.buckets[0].bucket_policy_status.PolicyStatus.IsPublic | default(false) }}"
+      vars:
+        _raw: "{{ s3_bucket.buckets[0].bucket_policy | default({}) }}"
+        _policy: "{{ _raw.Policy | default(_raw) }}"
+
+    - name: Show the bucket policy
+      ansible.builtin.debug:
+        msg:
+          bucket: "{{ bucket_name }}"
+          region: "{{ aws_region }}"
+          policy_present: "{{ (s3_bucket_policy | length) > 0 }}"
+          is_public: "{{ s3_bucket_policy_is_public }}"
+          policy: "{{ s3_bucket_policy if (s3_bucket_policy | length) > 0 else 'No bucket policy is set.' }}"

@@ -1,0 +1,38 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowRoleList",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::123456789012:role/AppReader"
+      },
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::policy-from-file"
+    },
+    {
+      "Sid": "AllowRoleRead",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::123456789012:role/AppReader"
+      },
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::policy-from-file/*"
+    },
+    {
+      "Sid": "DenyInsecureTransport",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::policy-from-file",
+        "arn:aws:s3:::policy-from-file/*"
+      ],
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "false"
+        }
+      }
+    }
+  ]
+}
