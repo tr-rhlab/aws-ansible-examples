@@ -37,6 +37,12 @@
         fail_msg: >-
           Pass the bucket with -e bucket_name=<name>
           and its region with -e aws_region=<region>.
+    - name: Require a policy
+      ansible.builtin.assert:
+        that:
+          - policy | default('') | length > 0
+        fail_msg: >-
+          Pass the policy with -e policy=<policy>.
 
     - name: Create the bucket and apply the inline policy
       amazon.aws.s3_bucket:
