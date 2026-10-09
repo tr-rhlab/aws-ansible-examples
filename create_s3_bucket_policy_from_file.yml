@@ -36,7 +36,7 @@
 
     - name: Load the bucket policy document
       ansible.builtin.set_fact:
-        bucket_policy: "{{ lookup('file', policy_path) | from_json }}"
+        bucket_policy: "{{ lookup('ansible.builtin.template', policy_path) | from_json }}"
 
     - name: Require every resource to name this bucket
       ansible.builtin.assert:
